@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Timeline Project</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  user-select: none;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: Arial, sans-serif;
+  background: white;
+}
+
+#canvas {
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  background: #fafafa;
+  cursor: grab;
+}
+
+#years {
+  position: fixed;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10;
+}
+
+.year-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid #000;
+  background: white;
+  cursor: pointer;
+}
+
+.year-btn.active {
+  background: black;
+  color: white;
+}
+
+#panel {
+  position: fixed;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 200px;
+  padding: 12px;
+  border: 1px solid #000;
+  background: white;
+  z-index: 10;
+  font-size: 12px;
+}
+
+#panel input,
+#panel button {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 6px;
+  font-size: 12px;
+}
+
+#panel button {
+  background: black;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+#timeline {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+#world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 2px;
+  background: black;
+  transform-origin: left center;
+}
+
+.month {
+  position: absolute;
+  top: -28px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.event {
+  position: absolute;
+  top: -60px;
+  text-align: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.event-circle {
+  width: 14px;
+  height: 14px;
+  background: black;
+  border-radius: 50%;
+  margin: 0 auto 6px;
+}
+
+.event-title {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+#contextMenu {
+  position: fixed;
+  background: white;
+  border: 1px solid black;
+  font-size: 12px;
+  z-index: 9999;
+  display: none;
+}
+
+#contextMenu div {
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+#contextMenu div:hover {
+  background: black;
+  color: white;
+}
+</style>
+</head>
+
+<body>
+
+<div id="years"></div>
+
+<div id="panel">
+  <h3>Add Event</h3>
+  <input id="titleInput" placeholder="Event title" />
+  <input id="dateInput" type="date" />
+  <button id="addEventBtn">Add Event</button>
+</div>
+
+<div id="canvas">
+  <div id="timeline">
+    <div id="world"></div>
+  </div>
+</div>
+
+<div id="contextMenu">
+  <div id="deleteEvent">Delete event</div>
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { 
+  getFirestore,
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc
+} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+/* Firebase Config */
+const firebaseConfig = {
+  apiKey: "AIzaSyCgg4raJqHu8Ot5AgjLGz9l8smDKzzQPyM",
+  authDomain: "gigastoragearchive.firebaseapp.com",
+  projectId: "gigastoragearchive",
+  storageBucket: "gigastoragearchive.firebasestorage.app",
+  messagingSenderId: "223133150846",
+  appId: "1:223133150846:web:74d2254f6029d51f18f22f"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+/* DOM */
+const canvas = document.getElementById("canvas");
+const world = document.getElementById("world");
+const yearsContainer = document.getElementById("years");
+const contextMenu = document.getElementById("contextMenu");
+const deleteEventBtn = document.getElementById("deleteEvent");
+
+const titleInput = document.getElementById("titleInput");
+const dateInput = document.getElementById("dateInput");
+const addEventBtn = document.getElementById("addEventBtn");
+
+/* Config */
+const BASE_WIDTH = 2000;
+const START_YEAR = 2016;
+const END_YEAR = 2026;
+const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+let events = [];
+let activeYear = 2025;
+let scale = 1;
+let offsetX = 100;
+let isDragging = false;
+let startX = 0;
+let selectedEventId = null;
+
+/* YEARS */
+for (let y = START_YEAR; y <= END_YEAR; y++) {
+  const btn = document.createElement("button");
+  btn.className = "year-btn";
+  btn.innerText = y;
+  if (y === activeYear) btn.classList.add("active");
+
+  btn.onclick = () => {
+    activeYear = y;
+    scale = 1;
+    offsetX = 100;
+    updateActiveYear();
+    renderTimeline();
+  };
+
+  yearsContainer.appendChild(btn);
+}
+
+function updateActiveYear() {
+  document.querySelectorAll(".year-btn").forEach(b => {
+    b.classList.toggle("active", Number(b.innerText) === activeYear);
+  });
+}
+
+/* LOAD EVENTS FROM FIRESTORE */
+async function loadEvents() {
+  const querySnapshot = await getDocs(collection(db, "events"));
+  events = [];
+
+  querySnapshot.forEach((docSnap) => {
+    events.push({ id: docSnap.id, ...docSnap.data() });
+  });
+
+  renderTimeline();
+}
+
+/* RENDER */
+function renderTimeline() {
+  world.innerHTML = "";
+  world.style.width = BASE_WIDTH + "px";
+  world.style.transform = `translateX(${offsetX}px) scale(${scale})`;
+
+  months.forEach((m, i) => {
+    const el = document.createElement("div");
+    el.className = "month";
+    el.innerText = m;
+    el.style.left = (i / 11) * BASE_WIDTH + "px";
+    world.appendChild(el);
+  });
+
+  events
+    .filter(e => new Date(e.date).getFullYear() === activeYear)
+    .forEach(e => {
+
+      const d = new Date(e.date);
+      const pos = ((d.getMonth() + d.getDate() / 31) / 12) * BASE_WIDTH;
+
+      const ev = document.createElement("div");
+      ev.className = "event";
+      ev.style.left = pos + "px";
+
+      ev.innerHTML = `
+        <div class="event-circle"></div>
+        <div class="event-title">${e.title}</div>
+      `;
+
+      ev.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        selectedEventId = e.id;
+        contextMenu.style.display = "block";
+        contextMenu.style.left = event.pageX + "px";
+        contextMenu.style.top = event.pageY + "px";
+      });
+
+      ev.addEventListener("click", () => {
+        window.open(`event.html?id=${e.id}`, "_blank");
+      });
+
+      world.appendChild(ev);
+    });
+}
+
+/* ADD EVENT */
+addEventBtn.onclick = async () => {
+  const title = titleInput.value.trim();
+  const date = dateInput.value;
+  if (!title || !date) return;
+
+  await addDoc(collection(db, "events"), {
+    title,
+    date
+  });
+
+  titleInput.value = "";
+  dateInput.value = "";
+  loadEvents();
+};
+
+/* DELETE EVENT */
+deleteEventBtn.addEventListener("click", async (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (!selectedEventId) return;
+
+  await deleteDoc(doc(db, "events", selectedEventId));
+
+  selectedEventId = null;
+  contextMenu.style.display = "none";
+  loadEvents();
+});
+
+/* HIDE MENU */
+window.addEventListener("click", (event) => {
+  if (!contextMenu.contains(event.target)) {
+    contextMenu.style.display = "none";
+  }
+});
+
+/* PAN + ZOOM */
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const mouseX = e.clientX;
+  const zoom = 1 - e.deltaY * 0.001;
+  const newScale = scale * zoom;
+  if (newScale < 0.3 || newScale > 4) return;
+
+  offsetX = mouseX - (mouseX - offsetX) * zoom;
+  scale = newScale;
+  renderTimeline();
+});
+
+canvas.addEventListener("mousedown", e => {
+  isDragging = true;
+  startX = e.clientX;
+  canvas.style.cursor = "grabbing";
+});
+
+window.addEventListener("mouseup", () => {
+  isDragging = false;
+  canvas.style.cursor = "grab";
+});
+
+window.addEventListener("mousemove", e => {
+  if (!isDragging) return;
+  offsetX += e.clientX - startX;
+  startX = e.clientX;
+  renderTimeline();
+});
+
+/* INITIAL LOAD */
+loadEvents();
+
+</script>
+</body>
+</html>
