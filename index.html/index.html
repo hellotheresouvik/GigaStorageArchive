@@ -5,10 +5,7 @@
 <title>Timeline Project</title>
 
 <style>
-* {
-  box-sizing: border-box;
-  user-select: none;
-}
+* { box-sizing: border-box; user-select: none; }
 
 body {
   margin: 0;
@@ -105,10 +102,10 @@ body {
 
 .event {
   position: absolute;
-  top: -60px;
   text-align: center;
   cursor: pointer;
   pointer-events: auto;
+  transform: translateX(-50%);
 }
 
 .event-circle {
@@ -121,7 +118,10 @@ body {
 
 .event-title {
   font-size: 12px;
+  max-width: 120px;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #contextMenu {
@@ -178,7 +178,7 @@ import {
   doc
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
-/* Firebase Config */
+/* YOUR REAL FIREBASE CONFIG */
 const firebaseConfig = {
   apiKey: "AIzaSyCgg4raJqHu8Ot5AgjLGz9l8smDKzzQPyM",
   authDomain: "gigastoragearchive.firebaseapp.com",
@@ -191,7 +191,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-/* DOM */
 const canvas = document.getElementById("canvas");
 const world = document.getElementById("world");
 const yearsContainer = document.getElementById("years");
@@ -202,7 +201,6 @@ const titleInput = document.getElementById("titleInput");
 const dateInput = document.getElementById("dateInput");
 const addEventBtn = document.getElementById("addEventBtn");
 
-/* Config */
 const BASE_WIDTH = 2000;
 const START_YEAR = 2016;
 const END_YEAR = 2026;
@@ -216,7 +214,7 @@ let isDragging = false;
 let startX = 0;
 let selectedEventId = null;
 
-/* YEARS */
+/* YEAR BUTTONS */
 for (let y = START_YEAR; y <= END_YEAR; y++) {
   const btn = document.createElement("button");
   btn.className = "year-btn";
@@ -240,20 +238,19 @@ function updateActiveYear() {
   });
 }
 
-/* LOAD EVENTS FROM FIRESTORE */
+/* LOAD EVENTS */
 async function loadEvents() {
-  const querySnapshot = await getDocs(collection(db, "events"));
+  const snapshot = await getDocs(collection(db, "events"));
   events = [];
-
-  querySnapshot.forEach((docSnap) => {
+  snapshot.forEach(docSnap => {
     events.push({ id: docSnap.id, ...docSnap.data() });
   });
-
   renderTimeline();
 }
 
 /* RENDER */
 function renderTimeline() {
+
   world.innerHTML = "";
   world.style.width = BASE_WIDTH + "px";
   world.style.transform = `translateX(${offsetX}px) scale(${scale})`;
@@ -266,38 +263,59 @@ function renderTimeline() {
     world.appendChild(el);
   });
 
-  events
+  const yearEvents = events
     .filter(e => new Date(e.date).getFullYear() === activeYear)
-    .forEach(e => {
-
+    .map(e => {
       const d = new Date(e.date);
       const pos = ((d.getMonth() + d.getDate() / 31) / 12) * BASE_WIDTH;
+      return { ...e, pos };
+    })
+    .sort((a, b) => a.pos - b.pos);
 
-      const ev = document.createElement("div");
-      ev.className = "event";
-      ev.style.left = pos + "px";
+  let lastPos = -Infinity;
+  let level = 0;
+  const COLLISION_THRESHOLD = 100;
+  const LEVEL_HEIGHT = 50;
 
-      ev.innerHTML = `
-        <div class="event-circle"></div>
-        <div class="event-title">${e.title}</div>
-      `;
+  yearEvents.forEach(e => {
 
-      ev.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+    if (e.pos - lastPos < COLLISION_THRESHOLD) {
+      level++;
+    } else {
+      level = 0;
+    }
 
-        selectedEventId = e.id;
-        contextMenu.style.display = "block";
-        contextMenu.style.left = event.pageX + "px";
-        contextMenu.style.top = event.pageY + "px";
-      });
+    const ev = document.createElement("div");
+    ev.className = "event";
+    ev.style.left = e.pos + "px";
+    ev.style.top = (-60 - level * LEVEL_HEIGHT) + "px";
 
-      ev.addEventListener("click", () => {
-        window.open(`event.html?id=${e.id}`, "_blank");
-      });
+    const circle = document.createElement("div");
+    circle.className = "event-circle";
 
-      world.appendChild(ev);
+    const title = document.createElement("div");
+    title.className = "event-title";
+    title.textContent = e.title;
+    title.title = e.title;
+
+    ev.appendChild(circle);
+    ev.appendChild(title);
+
+    ev.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      selectedEventId = e.id;
+      contextMenu.style.display = "block";
+      contextMenu.style.left = event.pageX + "px";
+      contextMenu.style.top = event.pageY + "px";
     });
+
+    ev.addEventListener("click", () => {
+      window.open("event.html?id=" + e.id, "_blank");
+    });
+
+    world.appendChild(ev);
+    lastPos = e.pos;
+  });
 }
 
 /* ADD EVENT */
@@ -306,50 +324,29 @@ addEventBtn.onclick = async () => {
   const date = dateInput.value;
   if (!title || !date) return;
 
-  await addDoc(collection(db, "events"), {
-    title,
-    date
-  });
+  await addDoc(collection(db, "events"), { title, date });
 
   titleInput.value = "";
   dateInput.value = "";
   loadEvents();
 };
 
-/* DELETE EVENT */
-deleteEventBtn.addEventListener("click", async (event) => {
-  event.preventDefault();
-  event.stopPropagation();
-
+/* DELETE */
+deleteEventBtn.onclick = async () => {
   if (!selectedEventId) return;
-
   await deleteDoc(doc(db, "events", selectedEventId));
-
   selectedEventId = null;
   contextMenu.style.display = "none";
   loadEvents();
-});
+};
 
-/* HIDE MENU */
-window.addEventListener("click", (event) => {
-  if (!contextMenu.contains(event.target)) {
+window.addEventListener("click", (e) => {
+  if (!contextMenu.contains(e.target)) {
     contextMenu.style.display = "none";
   }
 });
 
-/* PAN + ZOOM */
-canvas.addEventListener("wheel", e => {
-  e.preventDefault();
-  const mouseX = e.clientX;
-  const zoom = 1 - e.deltaY * 0.001;
-  const newScale = scale * zoom;
-  if (newScale < 0.3 || newScale > 4) return;
-
-  offsetX = mouseX - (mouseX - offsetX) * zoom;
-  scale = newScale;
-  renderTimeline();
-});
-
+/* PAN */
 canvas.addEventListener("mousedown", e => {
   isDragging = true;
   startX = e.clientX;
@@ -368,7 +365,19 @@ window.addEventListener("mousemove", e => {
   renderTimeline();
 });
 
-/* INITIAL LOAD */
+/* ZOOM */
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  const mouseX = e.clientX;
+  const zoom = 1 - e.deltaY * 0.001;
+  const newScale = scale * zoom;
+  if (newScale < 0.3 || newScale > 4) return;
+
+  offsetX = mouseX - (mouseX - offsetX) * zoom;
+  scale = newScale;
+  renderTimeline();
+});
+
 loadEvents();
 
 </script>
