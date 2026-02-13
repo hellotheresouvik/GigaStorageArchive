@@ -1,77 +1,101 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Event</title>
+<meta charset="UTF-8" />
+<title>Event</title>
 
-  <style>
-    body {
-      margin: 0;
-      padding: 40px;
-      font-family: Arial, sans-serif;
-      background: white;
-      color: black;
-    }
+<style>
+body {
+  margin: 0;
+  padding: 40px;
+  font-family: Arial, sans-serif;
+  background: white;
+  color: black;
+}
 
-    .container {
-      max-width: 700px;
-      margin: 0 auto;
-    }
+.container {
+  max-width: 700px;
+  margin: 0 auto;
+}
 
-    h1 {
-      margin-bottom: 10px;
-      font-size: 28px;
-    }
+h1 {
+  margin-bottom: 10px;
+  font-size: 28px;
+  outline: none;
+}
 
-    .date {
-      color: #555;
-      margin-bottom: 30px;
-    }
+.date {
+  color: #555;
+  margin-bottom: 30px;
+}
 
-    .section {
-      border-top: 1px solid #ddd;
-      padding-top: 20px;
-      margin-top: 20px;
-    }
+.section {
+  border-top: 1px solid #ddd;
+  padding-top: 20px;
+  margin-top: 20px;
+}
 
-    .section h3 {
-      margin-bottom: 10px;
-      font-size: 16px;
-    }
+.section h3 {
+  margin-bottom: 10px;
+  font-size: 16px;
+}
 
-    .placeholder {
-      color: #888;
-      font-size: 14px;
-    }
-  </style>
+.editable {
+  min-height: 60px;
+  padding: 8px;
+  border: 1px solid #ddd;
+  outline: none;
+}
+
+input, button {
+  padding: 6px;
+  font-size: 12px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+button {
+  background: black;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+
+.link-item {
+  margin-bottom: 6px;
+}
+</style>
 </head>
 
 <body>
-  <div class="container">
-    <h1 id="eventTitle"></h1>
-    <div class="date" id="eventDate"></div>
 
-    <div class="section">
-      <h3>Media folders</h3>
-      <div class="placeholder">
-        This is where folders like “Souvik”, “Ayush”, etc. will appear.
-      </div>
-    </div>
+<div class="container">
+  <h1 id="eventTitle" contenteditable="true"></h1>
+  <div class="date" id="eventDate"></div>
 
-    <div class="section">
-      <h3>Downloads</h3>
-      <div class="placeholder">
-        Google Drive links will live here.
-      </div>
-    </div>
+  <div class="section">
+    <h3>Description</h3>
+    <div id="eventDescription" class="editable" contenteditable="true"></div>
   </div>
 
-  <script type="module">
+  <div class="section">
+    <h3>Drive Folders</h3>
+
+    <div id="linksContainer"></div>
+
+    <input id="linkName" placeholder="Folder name (e.g. Souvik Phone Pics)" />
+    <input id="linkURL" placeholder="Google Drive link URL" />
+    <button id="addLinkBtn">Add Folder</button>
+  </div>
+</div>
+
+<script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
 import { 
   getFirestore,
   doc,
-  getDoc
+  getDoc,
+  updateDoc
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -89,16 +113,81 @@ const db = getFirestore(app);
 const params = new URLSearchParams(window.location.search);
 const id = params.get("id");
 
-if (id) {
-  const docRef = doc(db, "events", id);
-  const docSnap = await getDoc(docRef);
+const eventTitle = document.getElementById("eventTitle");
+const eventDate = document.getElementById("eventDate");
+const eventDescription = document.getElementById("eventDescription");
+const linksContainer = document.getElementById("linksContainer");
+const linkName = document.getElementById("linkName");
+const linkURL = document.getElementById("linkURL");
+const addLinkBtn = document.getElementById("addLinkBtn");
 
-  if (docSnap.exists()) {
-    const data = docSnap.data();
-    document.getElementById("eventTitle").innerText = data.title;
-    document.getElementById("eventDate").innerText = data.date;
+if (!id) {
+  eventTitle.innerText = "Invalid event";
+} else {
+
+  const eventRef = doc(db, "events", id);
+  const docSnap = await getDoc(eventRef);
+
+  if (!docSnap.exists()) {
+    eventTitle.innerText = "Event not found";
   } else {
-    document.getElementById("eventTitle").innerText = "Event not found";
+
+    const data = docSnap.data();
+
+    eventTitle.innerText = data.title || "";
+    eventDate.innerText = data.date || "";
+    eventDescription.innerText = data.description || "";
+
+    renderLinks(data.links || []);
+
+    // AUTO SAVE TITLE
+    eventTitle.addEventListener("blur", async () => {
+      await updateDoc(eventRef, {
+        title: eventTitle.innerText
+      });
+    });
+
+    // AUTO SAVE DESCRIPTION
+    eventDescription.addEventListener("blur", async () => {
+      await updateDoc(eventRef, {
+        description: eventDescription.innerText
+      });
+    });
+
+    // ADD NEW LINK
+    addLinkBtn.addEventListener("click", async () => {
+
+      const name = linkName.value.trim();
+      const url = linkURL.value.trim();
+
+      if (!name || !url) return;
+
+      const latestSnap = await getDoc(eventRef);
+      const latestData = latestSnap.data();
+
+      const updatedLinks = [...(latestData.links || []), { name, url }];
+
+      await updateDoc(eventRef, {
+        links: updatedLinks
+      });
+
+      renderLinks(updatedLinks);
+
+      linkName.value = "";
+      linkURL.value = "";
+    });
+
+    function renderLinks(links) {
+      linksContainer.innerHTML = "";
+
+      links.forEach(link => {
+        const div = document.createElement("div");
+        div.className = "link-item";
+        div.innerHTML = `<a href="${link.url}" target="_blank">${link.name}</a>`;
+        linksContainer.appendChild(div);
+      });
+    }
+
   }
 }
 </script>
