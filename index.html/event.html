@@ -66,20 +66,42 @@
     </div>
   </div>
 
-  <script>
-  const params = new URLSearchParams(window.location.search);
-  const id = params.get("id");
+  <script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { 
+  getFirestore,
+  doc,
+  getDoc
+} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
-  const events = JSON.parse(localStorage.getItem("timelineEvents")) || [];
-  const event = events.find(e => e.id === id);
+const firebaseConfig = {
+  apiKey: "AIzaSyCgg4raJqHu8Ot5AgjLGz9l8smDKzzQPyM",
+  authDomain: "gigastoragearchive.firebaseapp.com",
+  projectId: "gigastoragearchive",
+  storageBucket: "gigastoragearchive.firebasestorage.app",
+  messagingSenderId: "223133150846",
+  appId: "1:223133150846:web:74d2254f6029d51f18f22f"
+};
 
-  if (event) {
-    document.getElementById("eventTitle").innerText = event.title;
-    document.getElementById("eventDate").innerText = event.date;
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const params = new URLSearchParams(window.location.search);
+const id = params.get("id");
+
+if (id) {
+  const docRef = doc(db, "events", id);
+  const docSnap = await getDoc(docRef);
+
+  if (docSnap.exists()) {
+    const data = docSnap.data();
+    document.getElementById("eventTitle").innerText = data.title;
+    document.getElementById("eventDate").innerText = data.date;
   } else {
-    document.getElementById("eventTitle").innerText = "Untitled Event";
-    document.getElementById("eventDate").innerText = "";
+    document.getElementById("eventTitle").innerText = "Event not found";
   }
+}
 </script>
+
 </body>
 </html>
